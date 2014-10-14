@@ -1,0 +1,19 @@
+.sys-message-notice {
+    color: red;
+}
+form#sys-message-form {
+    color: red;
+}
+form#sys-message-form table.sys-message-table th#sender {
+    width: 20%;
+    color: red;
+}
+
+form#sys-message-form table.sys-message-table th#date {
+    width: 20%;
+}
+
+form#sys-message-form {
+    margin-top: 25px;
+}
+
