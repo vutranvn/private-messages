@@ -1,6 +1,6 @@
 <?php
 /*
- * Plugin Name: System Private Message
+ * Plugin Name: System Messages for WordPress
  * Plugin URI: http://sys-messages.vutran.vn
  * Author:  Hotdeal Team
  * Author URI: http://www.hotdeal.vn
@@ -62,9 +62,9 @@ function inc_scripts_sys_message(){
 add_action( 'admin_menu', 'sm_admin_menu' );
 
 function sm_admin_menu(){
-    add_menu_page( 'System Private Message', 'Sys Message', 'manage_options', 'message-inbox', 'message_inbox' );
-    add_submenu_page( 'message-inbox', 'Message Inbox', 'Inbox', 'manage_options', 'message-inbox', 'message_inbox' );
-    add_submenu_page( 'message-inbox', 'Message Send', 'Sent', 'manage_options', 'message-sent', 'message_sent' );
-    add_submenu_page( 'message-inbox', 'Compose Message', 'Compose', 'manage_options', 'message-compose', 'message_compose' );
+    add_menu_page( 'System Message', 'System Message', 'read', 'message-inbox', 'message_inbox' );
+    add_submenu_page( 'message-inbox', 'Message Inbox', 'Inbox', 'read', 'message-inbox', 'message_inbox' );
+    add_submenu_page( 'message-inbox', 'Message Send', 'Sent', 'read', 'message-sent', 'message_sent' );
+    add_submenu_page( 'message-inbox', 'Compose Message', 'Compose', 'read', 'message-compose', 'message_compose' );
 }
 

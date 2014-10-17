@@ -5,23 +5,179 @@ function message_inbox(){
     // Global variable of WP
     global $wpdb, $current_user;
 
-    $status = array();
+    /*Action View one message*/
+    if( isset( $_REQUEST['page'] ) && $_REQUEST['page'] == 'message-inbox' ){
+
+        if( isset($_REQUEST['action']) ){
+            /*Group actions when select check-box: select read, unread, mark as read, delete*/
+            $action = -1;
+
+            /*The submit's action is priority heighter the action1*/
+            if( isset($_REQUEST['action2']) && $_REQUEST['action2'] != -1 && $_REQUEST['action'] == -1 ){
+                $action = $_REQUEST['action2'];
+            }elseif( $_REQUEST['action'] != -1 ){
+                $action = $_REQUEST['action'];
+            }
+
+            switch ( $action ) {
+                case 'view':
+                    if( isset($_REQUEST['mess_id']) && $_REQUEST['mess_id'] > 0 ){
+                        $message = sys_mess_query_get_row( $wpdb->prefix . "sys_messages", $_REQUEST['mess_id'] );
+                        if( $message->status == 0){
+                            sys_mess_query_update( $wpdb->prefix . "sys_messages", array('status' => 1), array( 'id' => $_REQUEST['mess_id']), array('%d') );
+                        }
+                        sys_mess_view_mess($message);/*Call template View Message*/
+                    }elseif( isset( $_REQUEST['orderby'] ) && isset( $_REQUEST['order'] ) ){
+                        $order_by = "DESC";
+                        $order = "id";
+
+                        if( in_array( $_REQUEST['orderby'], array('author_id', 'timestamp_gmt') ) ){
+                            $order_by = $_REQUEST['orderby'];
+                        }
+                        if( in_array($_REQUEST['order'], array('desc', 'asc') ) ){
+                            $order = $_REQUEST['order'];
+                        }
+
+                        sys_mess_get_messages($current_user, $status = array(0, 1, 3), $order_by, $order);
+                    }
+
+                    break;
+
+                case 'delete':
+
+                    /*Delete one message*/
+                    if( isset($_REQUEST['mess_id']) && $_REQUEST['mess_id'] > 0 ){
+                        $del_mess_arr = sys_mess_query_get_results( array( 'sm.id', 'sm.author_id' ), $wpdb->prefix . "sys_messages AS sm ", $_REQUEST['mess_id'] );
+
+                        if( isset($del_mess_arr[0]->author_id) && $del_mess_arr[0]->author_id == $current_user->ID ){
+                            $wpdb->delete( $wpdb->prefix . "sys_messages", array( 'id' => $_REQUEST['mess_id'], array( '%d' ) ) );
+                        }else{
+                            $wpdb->update( $wpdb->prefix . "sys_messages", array( 'status' => 3 ), array( 'id' => $_REQUEST['mess_id'] ) );
+                        }
+
+                        wp_redirect( admin_url( '?page=message-inbox' ) );
+                    }else{
+                        wp_redirect( admin_url( '?page=message-inbox' ) );
+                    }
+
+                    break;
+
+                case 'read':
+
+                    sys_mess_get_messages($current_user, $status = array(1), 'id', 'desc'); /*Call template View Message*/
+                    break;
+
+                case 'unread':
+
+                    sys_mess_get_messages($current_user, $status = array(0), 'id', 'desc');
+                    break;
+
+                case 'mark_read':
+
+                    $delete_mess_arr = $wpdb->get_results( "SELECT sm.id, sm.author_id FROM " . $wpdb->prefix . "sys_messages AS sm WHERE sm.id IN (" . implode( ',', $_REQUEST['cid_messages']) . ")" );
+
+                    foreach( $delete_mess_arr as $item ){
+                        $wpdb->update( $wpdb->prefix . "sys_messages", array('status' => 1), array( 'id' => $item->id ), array('%d') );
+                    }
+                    wp_redirect( admin_url( '?page=message-inbox' ) );
+                    break;
+
+                case 'trash':
+
+                    $delete_mess_arr = $wpdb->get_results( "SELECT sm.id, sm.author_id FROM " . $wpdb->prefix . "sys_messages AS sm WHERE sm.id IN (" . implode( ',', $_REQUEST['cid_messages']) . ")" );
+
+                    foreach( $delete_mess_arr as $item){
+                        if(  $current_user->ID == $item->author_id ){
+                            $wpdb->delete( $wpdb->prefix . "sys_messages", array( 'id' => $item->id ), array( "%d" ) );
+                        }else{
+                            $wpdb->update( $wpdb->prefix . "sys_messages", array( 'status' => 3), array( 'id' => $item->id ), array( '%d' ) );
+                        }
+                    }
+                    wp_redirect( admin_url( '?page=message-inbox' ) );
+                    break;
+
+                default:
+
+                    if( isset( $_REQUEST['s'] ) && $_REQUEST['s'] != ''){
+
+                        $messages = $wpdb->get_results( "SELECT sm.*, u.display_name, u.user_email, u.ID AS user_id FROM ". $wpdb->prefix ."sys_messages AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.recipient_id = " . $current_user->ID . " AND sm.status IN ( 0, 1, 3 ) AND sm.subject LIKE '%". $_REQUEST['s'] ."%' ORDER BY sm.id DESC", OBJECT );
+
+                        if( $messages ){
+                            $count_mess = count( $messages );
+                        }else{
+                            $count_mess = 0;
+                        }
+
+                        foreach ($messages as $key => $item) {
+                            if( $item->status == 3 && $item->author_id != $current_user->ID ){
+                                unset( $messages[$key] );
+                            }
+                        }
+                        /*sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)*/
+                        sys_mess_load_inbox($messages, 0, $count_mess, 0);
+                    }else{
+                        wp_redirect( admin_url( '?page=message-inbox' ) );
+                    }
+
+                    break;
+            }
+        }else{
+
+            sys_mess_get_messages($current_user, array(0, 1, 3), 'id', 'desc');
+        }
+    }
+
+}
+
+
+function sys_mess_query_get_results( $select = array(), $table, $where, $order_by = null, $order = null ){
+    global $wpdb;
+
+    $select = implode( ',', $select);
+    $result = $wpdb->get_results( "SELECT " . $select . " FROM " . $table . " WHERE sm.id = " . $where );
+
+    return $result;
+}
+
+function sys_mess_query_update( $table, $data = array(), $where = array(), $format = null ){
+    global $wpdb;
+
+    $wpdb->update( $table, $data, $where, $format );
+}
+
+function sys_mess_query_get_row($table, $where){
+    global $wpdb;
+
+    $result = $wpdb->get_row( "SELECT sm.*, u.display_name FROM " . $table . " AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.id = " . $where );
+
+    return $result;
+}
+
+function sys_mess_query_delete(){
+    // Code...
+}
+
+function sys_mess_get_messages( $current_user, $status = array(0, 1, 3), $order_by, $order ){
+    global $wpdb;
+
+    $status = implode(',', $status);
     // Get all messages of current user. Maybe then create one function in any where. Hihi
-    $mess_status_01 = $wpdb->get_results( "SELECT sm.*, u.display_name, u.user_email, u.ID AS user_id FROM ". $wpdb->prefix ."sys_messages AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.recipient_id = " . $current_user->ID . " AND sm.status IN (0, 1) ORDER BY sm.id DESC", OBJECT );
+    $messages = $wpdb->get_results( "SELECT sm.*, u.display_name, u.user_email, u.ID AS user_id FROM ". $wpdb->prefix ."sys_messages AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.recipient_id = " . $current_user->ID . " AND sm.status IN ( ". $status ." ) ORDER BY sm." . $order_by . " " . $order, OBJECT );
 
-    /*Get messages delete has status = 3*/
-    $mess_status_3 = $wpdb->get_results( "SELECT sm.*, u.display_name, u.user_email, u.ID AS user_id FROM ". $wpdb->prefix ."sys_messages AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.recipient_id = " . $current_user->ID . " AND sm.status = 3 ORDER BY sm.id DESC", OBJECT );
-
-    $messages = array_merge($mess_status_01, $mess_status_3);
-    arsort($messages);
-    /*Get number and id of messages which current user don't have read*/
-    $unread_mess = $wpdb->get_col( "SELECT id FROM " . $wpdb->prefix . "sys_messages WHERE status = 0 AND recipient_id = " . $current_user->ID );
+    foreach ($messages as $key => $item) {
+        if( $item->status == 3 && $item->author_id != $current_user->ID ){
+            unset( $messages[$key] );
+        }
+    }
 
     if( $messages ){
         $count_mess = count( $messages );
     }else{
         $count_mess = 0;
     }
+
+    /*Get number and id of messages which current user don't have read*/
+    $unread_mess = $wpdb->get_col( "SELECT id FROM " . $wpdb->prefix . "sys_messages WHERE status = 0 AND recipient_id = " . $current_user->ID );
 
     /*Count number unread message*/
     if( $unread_mess ){
@@ -36,105 +192,49 @@ function message_inbox(){
         $count_unread = 0;
     }
 
-    /*Action View one message*/
-    if( $_REQUEST['page'] == 'message-inbox' && isset($_REQUEST['action']) && $_REQUEST['action'] == 'view' && $_REQUEST['mess_id'] > 0 ){
+    /* In normal, will call template Inbox Messages*/
+    sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread);
+}
 
-        $message = $wpdb->get_row( "SELECT sm.*, u.display_name FROM " . $wpdb->prefix . "sys_messages AS sm LEFT JOIN " . $wpdb->prefix . "users AS u ON sm.author_id = u.ID WHERE sm.id = " . $_REQUEST['mess_id'] );
+function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread){
 
-        if( $message->status == 0){
-            $wpdb->update( $wpdb->prefix . "sys_messages", array('status' => 1), array( 'id' => $_REQUEST['mess_id']), array('%d') );
-        }
-
-        sys_mess_view_mess($message);/*Call template View Message*/
-
-    /* Action Delete one message
-     *  If current user is author's message, then drop out database
-     * If not set status = 3.
-    */
-    }elseif( ($_REQUEST['page'] == 'message-inbox') && isset($_REQUEST['action']) && ($_REQUEST['action'] == 'delete') && ($_REQUEST['mess_id'] > 0) ){
-
-        $del_mess_arr = $wpdb->get_results( "SELECT sm.id, sm.author_id FROM " . $wpdb->prefix . "sys_messages AS sm WHERE sm.id = " . $_REQUEST['mess_id'] );
-
-        foreach ($del_mess_arr as $mess) {
-            if( $current_user->ID == $del_mess_arr[0]->author_id){
-
-                $wpdb->delete( $wpdb->prefix . "sys_messages", array( 'id' => $_REQUEST['mess_id'], array( '%d' ) ) );
-
-            }else{
-
-                $wpdb->update( $wpdb->prefix . "sys_messages", array( 'status' => 3 ), array( 'id' => $_REQUEST['mess_id'] ) );
-
-            }
-        }
-
-        wp_redirect( admin_url( '?page=message-inbox' ) );
-
-    /*Group actions when select check-box*/
-    }elseif( $_REQUEST['page'] == 'message-inbox' && isset($_REQUEST['action']) || isset($_REQUEST['action2']) ){
-
-        if( isset($_REQUEST['cid_messages']) ){
-
-            $action = -1;
-
-            /*The submit's action is priority heighter the action1*/
-            if( $_REQUEST['action2'] != -1 && $_REQUEST['action'] == -1 ){
-                $action = $_REQUEST['action2'];
-            }elseif( $_REQUEST['action'] != -1 ){
-                $action = $_REQUEST['action'];
-            }
-
-            switch ( $action ) {
-
-                case 'mark_read':
-
-                    $delete_mess_arr = $wpdb->get_results( "SELECT sm.id, sm.author_id FROM " . $wpdb->prefix . "sys_messages AS sm WHERE sm.id IN (" . implode( ',', $_REQUEST['cid_messages']) . ")" );
-
-                    foreach( $delete_mess_arr as $item ){
-                        $wpdb->update( $wpdb->prefix . "sys_messages", array('status' => 1), array( 'id' => $item->id ), array('%d') );
-                    }
-
-                    break;
-
-                case 'trash':
-                    $delete_mess_arr = $wpdb->get_results( "SELECT sm.id, sm.author_id FROM " . $wpdb->prefix . "sys_messages AS sm WHERE sm.id IN (" . implode( ',', $_REQUEST['cid_messages']) . ")" );
-
-                    foreach( $delete_mess_arr as $item){
-                        if(  $current_user->ID == $item->author_id ){
-                            $wpdb->delete( $wpdb->prefix . "sys_messages", array( 'id' => $item->id ), array( "%d" ) );
-                        }else{
-                            $wpdb->update( $wpdb->prefix . "sys_messages", array( 'status' => 3), array( 'id' => $item->id ), array( '%d' ) );
-                        }
-                    }
-
-                    break;
-
-                default:
-                    wp_redirect( admin_url( '?page=message-inbox' ) );
-                    break;
-            }
-
-            wp_redirect( admin_url( '?page=message-inbox' ) );
-
-        }else{
-            wp_redirect( admin_url( '?page=message-inbox' ) );
-        }
-
+    if( isset($_REQUEST['orderby']) && $_REQUEST['orderby'] == 'author_id' && isset($_REQUEST['order']) && $_REQUEST['order'] == 'asc' ){
+        $sender_order = 'desc';
+        $sender_css = 'sorted asc';
+    }elseif( isset($_REQUEST['orderby']) && $_REQUEST['orderby'] == 'author_id' && isset($_REQUEST['order']) && $_REQUEST['order'] == 'desc' ){
+        $sender_order = 'asc';
+        $sender_css = 'sorted desc';
     }else{
-
-        /* In normal, will call template Inbox Messages*/
-        sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread);
-
+        $sender_order = 'asc';
+        $sender_css = 'sortable desc';
     }
 
-?>
+    if( isset($_REQUEST['orderby']) && $_REQUEST['orderby'] == 'timestamp_gmt' && isset($_REQUEST['order']) && $_REQUEST['order'] == 'asc' ){
+        $date_order = 'desc';
+        $date_css = 'sorted asc';
+    }elseif( isset($_REQUEST['orderby']) && $_REQUEST['orderby'] == 'timestamp_gmt' && isset($_REQUEST['order']) && $_REQUEST['order'] == 'desc' ){
+        $date_order = 'asc';
+        $date_css = 'sorted desc';
+    }else{
+        $date_order = 'asc';
+        $date_css = 'sortable desc';
+    }
+    $hid_search = '';
+    if( isset( $_REQUEST['s'] ) && $_REQUEST['s'] != '' ){
+        $hid_search = $_REQUEST['s'];
+    }
 
-<?php } ?>
-
-<?php
-function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread){
     ?>
     <div class="wrap">
-        <h2>Message Inbox</h2>
+        <h2>
+            Message Inbox
+            <?php
+            if( $hid_search != '' ){
+                echo '<span class="subtitle">Search results for “' .$hid_search. '”</span>';
+            }
+            ?>
+        </h2>
+
         <ul class="sys-message-notice">
             <li></li>
         </ul>
@@ -142,29 +242,30 @@ function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)
         <p>You have <?php echo $count_unread; ?> message(s) unread</p>
 
         <ul class="subsubsub">
-            <li class="all"><a href="#" class="current">All</a> |</li>
-            <li class="moderated"><a href="#">Read <span class="count">(<span class="pending-count">0</span>)</span></a> |</li>
-            <li class="approved"><a href="#">Unread</a> |</li>
-            <li class="trash"><a href="#">Trash <span class="count">(<span class="trash-count">0</span>)</span></a></li>
+            <li class="all"><a href="<?php echo admin_url('?page=message-inbox'); ?>" class="current">All</a> |</li>
+            <li class="moderated"><a href="<?php echo admin_url('?page=message-inbox&action=read'); ?>">Read <span class="count">(<span class="pending-count">0</span>)</span></a> |</li>
+            <li class="approved"><a href="<?php echo admin_url('?page=message-inbox&action=unread'); ?>">Unread</a> |</li>
         </ul>
 
-        <form id="sys-message-form" action="" method="post">
+        <form id="sys-message-form" action="" method="get">
+
+            <input type="hidden" name="page" value="<?php echo $_REQUEST['page'] ?>" />
+            <input type="hidden" name="sender_order" value="<?php echo $sender_order; ?>" />
+            <input type="hidden" name="date_order" value="<?php echo $date_order; ?>" />
 
             <p class="search-box">
                 <label class="screen-reader-text" for="message-search-input">Search Message:</label>
-                <input id="message-search-input" name="s" value="" type="search" />
+                <input id="message-search-input" name="s" value="<?php echo $hid_search != '' ? $hid_search : ''; ?>" type="search" />
                 <input name="" id="search-submit" class="button" value="Search Message" type="submit" />
             </p>
-
+            <!-- English language, PHP(Zend framework, Laravel, WordPress, Joomla, Drupal, Magento), Ruby on Rails, iOS -->
             <div class="tablenav top">
                 <div class="alignleft actions bulkactions">
                     <label for="bulk-action-selector-top" class="screen-reader-text">Select bulk action</label>
                     <select name="action" id="bulk-action-selector-top">
                         <option value="-1" selected="selected">Bulk Actions</option>
-                        <option value="read">Read</option>
-                        <option value="unread">Unread</option>
                         <option value="mark_read">Mark as Read</option>
-                        <option value="trash">Move to Trash</option>
+                        <option value="trash">Delete</option>
                     </select>
                     <input name="" id="doaction" class="button action" value="Apply" type="submit" />
                 </div>
@@ -184,6 +285,7 @@ function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)
                 </div>
                 <br class="clear" />
             </div>
+
             <table class="widefat fixed sys-message-table">
                 <thead>
                     <tr>
@@ -191,15 +293,16 @@ function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)
                             <label class="screen-reader-text" for="cb-select-all-1">Select All</label>
                             <input id="cb-select-all-1" type="checkbox" />
                         </th>
-                        <th scope="col" id="sender" class="manage-column sortable desc" style="width: 20%;">
-                            <a href="http://fiverr.local/wp-admin/edit-comments.php?orderby=comment_author&amp;order=asc">
+                        <th scope="col" id="sender" class="manage-column sortable <?php echo $sender_css; ?>" style="width: 20%;">
+
+                            <a href="<?php echo admin_url( '?page=message-inbox&action=view&orderby=author_id&order=' . $sender_order ); ?>" >
                                 <span>Sender</span>
                                 <span class="sorting-indicator"></span>
                             </a>
                         </th>
                         <th scope="col" id="subject" class="manage-column column-comment" style="">Subject</th>
                         <th scope="col" id="date" class="manage-column column-response sortable desc" style="width: 25%;">
-                            <a href="http://fiverr.local/wp-admin/edit-comments.php?orderby=comment_post_ID&amp;order=asc">
+                            <a href="<?php echo admin_url('?page=message-inbox&action=view&orderby=timestamp_gmt&order=' . $date_order ); ?>">
                                 <span>Date</span>
                                 <span class="sorting-indicator"></span>
                             </a>
@@ -214,14 +317,14 @@ function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)
                             <input id="cb-select-all-2" type="checkbox" />
                         </th>
                         <th scope="col" class="manage-column column-author sortable desc" style="">
-                            <a href="http://fiverr.local/wp-admin/edit-comments.php?orderby=comment_author&amp;order=asc">
+                            <a href="<?php echo admin_url( '?page=message-inbox&action=view&orderby=author_id&order=' . $sender_order ); ?>">
                                 <span>Sender</span>
                                 <span class="sorting-indicator"></span>
                             </a>
                         </th>
                         <th scope="col" class="manage-column column-comment" style="">Subject</th>
                         <th scope="col" class="manage-column column-response sortable desc" style="">
-                            <a href="http://fiverr.local/wp-admin/edit-comments.php?orderby=comment_post_ID&amp;order=asc">
+                            <a href="<?php echo admin_url('?page=message-inbox&action=view&orderby=timestamp_gmt&order=' . $date_order ); ?>">
                                 <span>Date</span>
                                 <span class="sorting-indicator"></span>
                             </a>
@@ -281,7 +384,7 @@ function sys_mess_load_inbox($messages, $unread_mess, $count_mess,$count_unread)
                         <option value="read">Read</option>
                         <option value="unread">Unread</option>
                         <option value="mark_read">Mark as Read</option>
-                        <option value="trash">Move to Trash</option>
+                        <option value="trash">Delete</option>
                     </select>
                     <input name="" id="doaction2" class="button action" value="Apply" type="submit" />
                 </div>
